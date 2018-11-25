@@ -1,6 +1,6 @@
 # node-postgres-json-sync
 
-Realtime bidirectional bindings between JS objects and postgres JSON fields.
+Realtime bidirectional bindings between JS objects and postgres JSON fields, for convenient schemaless data persistence.
 
 ## Motivation
 
@@ -96,3 +96,8 @@ Of couse you need a postgres instance to connect to.
 
 TODO
 
+## Contributions and improvements
+
+- Optimisation. Connections / pools could probably be handled better.
+- Could adapt for use with postgres-rest
+- A better name potentially
