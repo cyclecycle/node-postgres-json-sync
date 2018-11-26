@@ -19,13 +19,14 @@ Assuming I have a postgres table and data set up like:
 
 ```sql
 CREATE TABLE my_table (
+    id serial PRIMARY KEY NOT NULL,
     my_data_field jsonb
 );
 
 INSERT INTO my_table (my_data_field) values ('{"key": "value"}');
 ```
 
-Then with NodeJS I can instantiate a representation of that data field:
+Then with NodeJS I can instantiate an object that represents that data field:
 
 ```js
 
@@ -41,8 +42,8 @@ const connectParams = {  // Connection parameters for node-postgres
 }
 
 const queryParams = {  // How to find our JSON object in the database
-  'table': 'test_table',
-  'fieldName': 'data',
+  'table': 'my_table',
+  'fieldName': 'my_data_field',
   'rowId': 1
 }
 
@@ -50,27 +51,25 @@ const pool = new Pool(connectParams)
 
 let binder = PostgresJSONBinder(pool)
 
-// With async-await
-
-let binding = binder.initBinding(queryParams)
+// Using async-await
+let binding = await binder.initBinding(queryParams)
 binding.obj  // {'key': 'value'}
-
-// With promises
-binder.initBinding().then(obj) {
-    // Do something
-}
 ```
 
-Changing the object triggers an update in the corresponding database field:
+Changing the object...
 
 ```js
 binding.obj.key = 'changed';
 ```
 
-Check it changed:
+ Triggers an update in the corresponding database field:
 
 ```sql
 SELECT my_data_field FROM my_table WHERE id = 1;
+
+-- id |          data           
+---------------------------
+--  1 | {"key": "changed"}
 ```
 
 Changes to the database will trigger an update on our object:
@@ -81,27 +80,27 @@ UPDATE my_table set my_data_field = '{"key": "changed again"}';
 
 ```js
 console.log(obj)
-// { key: changed again }
+// { 'key': 'changed again' }
 ```
 
 We can listen for changes like:
 
 ```js
 binder.on('change', function(type) {
-    // 'type' is 'clientside' or 'database'
+    // type is 'clientside' or 'database', according to the origin of the change
 })
 ```
 
 ## Requirements
 
-Uses node-postgres and ObservableSlim packages. These can be installed with npm install.
+Uses [node-postgres](https://github.com/brianc/node-postgres) and [ObservableSlim](https://github.com/ElliotNB/observable-slim) packages. These can be installed with npm install.
 
 You'll need a postgres instance to connect to.
 
 ## Contributions and improvements
 
 - Events could be handled better
-- Optimisation. Connections / pools could probably be handled better.
+- Optimisation. Connections / pools could probably be handled better
 - Could adapt for use with postgres-rest
 - Tests
 - A better name potentially
