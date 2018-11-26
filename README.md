@@ -11,7 +11,7 @@ Services such as firebase and socket.io provide convenient two-way bindings with
 
 This is convenient when creating any CRUD-like application, which can involve a lot of middleman logic between the client state and the database, especially when realtime updates are desired.
 
-I wanted to use postgres for my backend, and to host it locally, and couldn't find library / service that provides sync-like bindings between a javascript object and a postgres JSON field, so I created this project.
+I wanted to use postgres for my backend, and to host it locally, and couldn't find a library / service that provides sync-like bindings between a javascript object and a postgres JSON field, so I created this project.
 
 ## Example
 
