@@ -1,24 +1,21 @@
+const util = require('util')
 const fs = require('fs')
 const { promisify } = require('util')
 const readFile = promisify(fs.readFile)
 const ObservableSlim = require('observable-slim')
-const EventEmitter = require('events');
+const EventEmitter = require('events').EventEmitter
 
 
 /*
 TODO
   tests
-  a container that keeps track of mapped objects. import that the binder, and initialise mappings. Then PGConnections is an attribute of the binder and not global.
   event listeners
   Update behaviour:
     overwriting union with existing object
-  error handling
 */
 
+
 module.exports = { PostgresJSONBinder }
-
-PGConnections = []  // Unique list of connection params and their corresponding pools
-
 
 
 function PostgresJSONBinder(pool) {
@@ -28,10 +25,17 @@ function PostgresJSONBinder(pool) {
 }
 
 
+PostgresJSONBinder.prototype.close = function() {
+  // TODO drop if exists notify/trigger functions
+  this.pool.end()
+}
+
+
 PostgresJSONBinder.prototype.initBinding = async function(queryParams) {
   let binding
   try {
     binding = new PostgresJSONBinding(this.pool, queryParams)
+    util.inherits(PostgresJSONBinding, EventEmitter)
     await binding.init()
     binding.binder = this
     this.bindings.push(binding)
@@ -43,27 +47,10 @@ PostgresJSONBinder.prototype.initBinding = async function(queryParams) {
 }
 
 
-// async function initPostgresJSONBinding(pool, queryParams) {
-//   binding = new PostgresJSONBinding(pool, queryParams)
-//   obj = await binder.init()
-//   return obj
-// }
-
-
-PostgresJSONBinder.prototype.close = function() {
-  // TODO drop if exists notify/trigger functions
-  this.pool.end()
-}
-
 
 function PostgresJSONBinding(pool, queryParams) {
   // Creates an object which, when changed, triggers an update in the corresponding database field. Conversely, changes in the corresponding database field trigger an update in the object.
 
-  // this.obj = obj  // The client side object to map to a postgres JSON field
-  // this.connectParams = connectParams
-  // this.connection = this.getOrCreateConnection(connectParams)
-  // this.databaseName = this.connection.params.database
-  // this.pool = this.connection.pool
   this.binder = null
   this.pool = pool
   this.databaseName = pool.options.database
@@ -79,9 +66,6 @@ function PostgresJSONBinding(pool, queryParams) {
   this.PGNofityFuncName = `PostgresJSONBinder_${this.databaseName}${this.fieldName}${this.idFieldName}${this.rowId}_Notify`
   this.PGTriggerName = `PostgresJSONBinder_${this.databaseName}${this.fieldName}${this.idFieldName}${this.rowId}_Trigger`
   this.PGChannelName = `PostgresJSONBinder_${this.databaseName}${this.fieldName}${this.idFieldName}${this.rowId}_Channel`
-
-  // this.unresovledDatabaseChange = false
-  // this.unresolvedClientSideChange = false
 }
 
 
@@ -118,30 +102,13 @@ PostgresJSONBinding.prototype.getObjectFromDatabase = async function() {
 }
 
 
-// PostgresJSONBinding.prototype.getOrCreateConnection = function (connectParams) {
-//   let connection = null
-//   // Find connection if it exists
-//   PGConnections.forEach(function(item) {
-//     if (connectParams == item.params) {
-//       connection = item
-//     }
-//   })
-//   // Else create and add to stack
-//   if (!connection) {
-//     const pool = new Pool(connectParams)
-//     connection = {'params': connectParams, 'pool': pool}
-//     PGConnections.push(connection)
-//   }
-//   return connection
-// }
-
-
 PostgresJSONBinding.prototype.createProxy = function(objToWatch, callbacks) {
   let ref = this
   // This is how we listen for changes in the client side object
-  let proxy = ObservableSlim.create(objToWatch, false, function(changes) {
+  let proxy = ObservableSlim.create(objToWatch, false, async function(changes) {
     // Client side object has changed
-    ref.updateDatabase(obj, changes)
+    await ref.updateDatabase(obj, changes)
+    ref.emit('change', 'clientside')
   })
   return proxy
 }
@@ -166,6 +133,7 @@ PostgresJSONBinding.prototype.createPostgresNotifyFunction = async function() {
   })
   let sql = template
   // // Run the SQL
+  // console.log(sql)
   try {
     this.pool.query(sql)
   } catch (err) {
@@ -177,14 +145,16 @@ PostgresJSONBinding.prototype.createPostgresNotifyFunction = async function() {
 PostgresJSONBinding.prototype.listenForDatabaseChanges = async function() {
   // Listen
   const ref = this
-  await this.pool.query(`LISTEN "${this.PGChannelName}"`)
-  this.pool.on('notification', function(data) {
-    // Database field changed. Check if it's different to what we have in state.
-    console.log('nofitication')
+  const client = await this.pool.connect()
+  await client.query(`LISTEN "${this.PGChannelName}"`)
+  client.on('notification', async function(data) {
+    // Database field changed
     let newData = JSON.parse(data.payload)[ref.fieldName]
-    // Update the object
-    ref.obj = ref.createProxy(newData)
-    console.log('new obj:', ref.obj)
+    if (JSON.stringify(newData) !== JSON.stringify(ref.obj)) {
+      // Update the object
+      ref.obj = await ref.createProxy(newData)
+      ref.emit('change', 'database')
+    }
   })
 }
 
@@ -198,9 +168,9 @@ PostgresJSONBinding.prototype.updateDatabase =  async function(obj, changes) {
   try {
     response = await this.pool.query(q);
     let updated = response.rows[0][this.fieldName]  // Get new data from database field. Should be the same as the newData we updated it with, but maybe if it got changed during the window by another agent, it could be different. In any case this ensures we're in sync.
-    console.log(updated)
-    // proxy = this.createProxy(updated)  // Set up our listeners on the new object
-    // this.obj = proxy  // Finally update our base client side object
+    // console.log(updated)
+    proxy = this.createProxy(updated)  // Set up our listeners on the new object
+    this.obj = proxy  // Finally update our base client side object
   } catch (err) {
     throw {
       msg: `Failed to update database with query: "${q}"`,
@@ -217,34 +187,21 @@ PostgresJSONBinding.prototype.close = function() {
 }
 
 
-// async function test() {
 
-//   connectParams = {
-//     user: 'nickm',
-//     host: 'localhost',
-//     database: 'test',
-//     password: 'memory',
-//     port: '5432'
+
+// PostgresJSONBinding.prototype.getOrCreateConnection = function (connectParams) {
+//   let connection = null
+//   // Find connection if it exists
+//   PGConnections.forEach(function(item) {
+//     if (connectParams == item.params) {
+//       connection = item
+//     }
+//   })
+//   // Else create and add to stack
+//   if (!connection) {
+//     const pool = new Pool(connectParams)
+//     connection = {'params': connectParams, 'pool': pool}
+//     PGConnections.push(connection)
 //   }
-
-//   // queryParams = {
-//   //   'table': 'test',
-//   //   'fieldName': 'data',
-//   //   'rowId': 1,
-//   // }
-
-//   obj = await initPostgresJSONObject(connectParams, 'test', 1, 'data')
-
-//   console.log(obj)
-//   // Changing a child object value
-//   obj.key = 'changed'
-//   console.log(obj)
-//   obj.key = 'changed again'
-//   console.log(obj)
-//   // obj.key = 'changed back'
-//   // console.log(obj)
-
+//   return connection
 // }
-
-// test()
-

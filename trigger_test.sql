@@ -1,14 +1,14 @@
-begin;
+BEGIN;
 
-create or replace function notify_data_change ()
+CREATE OR REPLACE FUNCTION PostgresJSONBinder_test_dbdataid1_Notify ()
  returns trigger
  language plpgsql
-as $$
+AS $$
 declare
   channel text := TG_ARGV[0];
-begin
+BEGIN
   PERFORM (
-     with payload(data) as
+     with payload(data) AS
      (
        select NEW.data where NEW.id = 1
      )
@@ -16,15 +16,15 @@ begin
        from payload
   );
   RETURN NULL;
-end;
+END;
 $$;
 
-DROP TRIGGER IF EXISTS notify_data_change3 on "test";
+DROP TRIGGER IF EXISTS PostgresJSONBinder_test_dbdataid1_Trigger on "test_table";
 
-CREATE TRIGGER notify_data_change3
+CREATE TRIGGER PostgresJSONBinder_test_dbdataid1_Trigger
          AFTER UPDATE
-            ON test
+            ON test_table
       FOR EACH ROW
-       EXECUTE PROCEDURE notify_data_change('data_change');
+       EXECUTE PROCEDURE PostgresJSONBinder_test_dbdataid1_Notify('PostgresJSONBinder_test_dbdataid1_Channel');
 
-commit;
+COMMIT;

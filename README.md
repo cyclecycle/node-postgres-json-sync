@@ -1,22 +1,23 @@
 # node-postgres-json-sync
 
-Realtime bidirectional bindings between JS objects and postgres JSON fields, for convenient schemaless data persistence.
+Realtime bidirectional bindings between JS objects and postgres JSON fields.
+
+- When client side object changes, update the corresponding database field,
+- When data in the corresponding database field changes, update the client side object.
 
 ## Motivation
 
-Services such as firebase and socket.io provide convenient two-way bindings the storage instance. They keep client side in sync with the database. They do this by updating the database when client side object is changed, and vice versa, while also providing events to allow the user to trigger actions on change to the data.
+Services such as firebase and socket.io provide convenient two-way bindings with a storage instance. They keep client side data in sync with the database. 
 
-This is extremely convenient when creating any CRUD-like application, which can involve a lot of middleman logic between the client state and the data persistence model, especially when realtime updates are desired.
+This is convenient when creating any CRUD-like application, which can involve a lot of middleman logic between the client state and the database, especially when realtime updates are desired.
 
-However, I wanted to use postgres for my backend, and to host it locally, and couldn't find library / service to allow me to just hook up a two-way binding from javascript object to a postgres json field and have all the syncing _handled_, as much as is reasonable out of the box, while also providing me with familiar _.on()_-type trigger for subscribing to and acting on data changes.
-
-That is the purpose of this project.
+I wanted to use postgres for my backend, and to host it locally, and couldn't find library / service that provides sync-like bindings between a javascript object and a postgres JSON field, so I created this project.
 
 ## Example
 
 Assuming I have a postgres table and data set up like:
 
-sql```
+```sql
 CREATE TABLE my_table (
     my_data_field jsonb
 );
@@ -24,80 +25,83 @@ CREATE TABLE my_table (
 INSERT INTO my_table (my_data_field) values ('{"key": "value"}');
 ```
 
-Then with NodeJS I can instantiate a representation of that object:
+Then with NodeJS I can instantiate a representation of that data field:
 
-js```
+```js
 
-let connectionParams = {}  // Connection parameters as per the node-postgres package
-let tableName = 'my_table';
-let rowId = 1;
-let fieldName = 'my_data_field';
+const { Pool } = require('pg')  // Require the node-postgres module
+const { PostgresJSONBinder } = require('../node-postgres-json-sync')
 
-let binder = PostgresJSONBinder(connectionParams, tableName, rowId, fieldName)
-binder.init().then(obj) {
-    console.log(obj)
+const connectParams = {  // Connection parameters for node-postgres
+  user: 'postgres_user',
+  host: 'localhost',
+  database: 'test_db',
+  password: 'postgres_password',
+  port: '5432'
 }
 
-// Or if we are in async function
-let obj = initPostgresJSONObject(connectionParams, tableName, rowId, fieldName)
+const queryParams = {  // How to find our JSON object in the database
+  'table': 'test_table',
+  'fieldName': 'data',
+  'rowId': 1
+}
 
+const pool = new Pool(connectParams)
+
+let binder = PostgresJSONBinder(pool)
+
+// With async-await
+
+let binding = binder.initBinding(queryParams)
+binding.obj  // {'key': 'value'}
+
+// With promises
+binder.initBinding().then(obj) {
+    // Do something
+}
 ```
 
-Changing the object triggers an update in the corresponding database field
+Changing the object triggers an update in the corresponding database field:
 
-js```
-
-obj.key = 'changed';
-
+```js
+binding.obj.key = 'changed';
 ```
 
-sql```
+Check it changed:
+
+```sql
 SELECT my_data_field FROM my_table WHERE id = 1;
 ```
 
-Changes to the database from another source will trigger an update our JS object:
+Changes to the database will trigger an update on our object:
 
-sql```
+```sql
 UPDATE my_table set my_data_field = '{"key": "changed again"}';
 ```
 
-js```
-
+```js
 console.log(obj)
 // { key: changed again }
-
 ```
 
-We can listen to both or either of these change types:
+We can listen for changes like:
 
-js```
-
-binder.on('change', function(obj, changes) {
-    // Do stuff
+```js
+binder.on('change', function(type) {
+    // 'type' is 'clientside' or 'database'
 })
-
-binder.on('client_side_change', function(obj, changes) {
-    // Do stuff
-})
-
-binder.on('database_change', function(obj, changes) {
-    // Do stuff
-})
-
 ```
 
 ## Requirements
 
-Built on top of the ObservableSlim package and the node-postgres package. These can be installed with npm install.
+Uses node-postgres and ObservableSlim packages. These can be installed with npm install.
 
-Of couse you need a postgres instance to connect to.
-
-## Documentation
-
-TODO
+You'll need a postgres instance to connect to.
 
 ## Contributions and improvements
 
+- Events could be handled better
 - Optimisation. Connections / pools could probably be handled better.
 - Could adapt for use with postgres-rest
+- Tests
 - A better name potentially
